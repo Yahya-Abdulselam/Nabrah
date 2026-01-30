@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nabrah Icon Generator</title>
+</head>
+<body>
+    <h1>Nabrah PWA Icon Generator</h1>
+    <p>This will generate 192x192 and 512x512 icons with Nabrah branding</p>
+    <button onclick="generateIcons()">Generate Icons</button>
+    <div id="output"></div>
+
+    <script>
+        function generateIcons() {
+            const sizes = [192, 512];
+            const output = document.getElementById('output');
+            output.innerHTML = '<h2>Generated Icons:</h2>';
+
+            sizes.forEach(size => {
+                // Create canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+
+                // Background gradient (blue theme)
+                const gradient = ctx.createLinearGradient(0, 0, size, size);
+                gradient.addColorStop(0, '#3b82f6');
+                gradient.addColorStop(1, '#1d4ed8');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, size, size);
+
+                // Add rounded corners for maskable
+                const cornerRadius = size * 0.1;
+                ctx.globalCompositeOperation = 'destination-in';
+                ctx.beginPath();
+                ctx.moveTo(cornerRadius, 0);
+                ctx.lineTo(size - cornerRadius, 0);
+                ctx.quadraticCurveTo(size, 0, size, cornerRadius);
+                ctx.lineTo(size, size - cornerRadius);
+                ctx.quadraticCurveTo(size, size, size - cornerRadius, size);
+                ctx.lineTo(cornerRadius, size);
+                ctx.quadraticCurveTo(0, size, 0, size - cornerRadius);
+                ctx.lineTo(0, cornerRadius);
+                ctx.quadraticCurveTo(0, 0, cornerRadius, 0);
+                ctx.closePath();
+                ctx.fill();
+
+                // Reset composite mode
+                ctx.globalCompositeOperation = 'source-over';
+
+                // Draw waveform icon (representing voice analysis)
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = size * 0.05;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                const centerY = size / 2;
+                const amplitude = size * 0.2;
+                const waveWidth = size * 0.7;
+                const startX = size * 0.15;
+
+                ctx.beginPath();
+                ctx.moveTo(startX, centerY);
+
+                // Waveform pattern
+                for (let x = 0; x < waveWidth; x += waveWidth / 20) {
+                    const y = centerY + Math.sin(x / (waveWidth / 10)) * amplitude * Math.random();
+                    ctx.lineTo(startX + x, y);
+                }
+
+                ctx.stroke();
+
+                // Add medical cross in top-right corner
+                const crossSize = size * 0.15;
+                const crossX = size * 0.75;
+                const crossY = size * 0.25;
+                const crossWidth = size * 0.04;
+
+                ctx.fillStyle = 'white';
+                // Vertical bar
+                ctx.fillRect(crossX - crossWidth / 2, crossY - crossSize / 2, crossWidth, crossSize);
+                // Horizontal bar
+                ctx.fillRect(crossX - crossSize / 2, crossY - crossWidth / 2, crossSize, crossWidth);
+
+                // Convert to download link
+                canvas.toBlob(blob => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `icon-${size}.png`;
+                    a.textContent = `Download icon-${size}.png`;
+                    a.style.display = 'block';
+                    a.style.margin = '10px';
+                    output.appendChild(a);
+
+                    // Auto-click to download
+                    a.click();
+                });
+
+                // Display preview
+                const img = document.createElement('img');
+                img.src = canvas.toDataURL();
+                img.width = 100;
+                img.style.margin = '10px';
+                output.appendChild(img);
+            });
+
+            output.innerHTML += '<p><strong>Instructions:</strong> Save the downloaded icons to <code>nabrah-app/public/icons/</code></p>';
+        }
+    </script>
+</body>
+</html>
