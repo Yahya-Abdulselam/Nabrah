@@ -338,16 +338,30 @@ def delete_patient(patient_id: str) -> bool:
     Returns:
         True if deletion successful, False otherwise
     """
+    import datetime
+
+    timestamp = datetime.datetime.now().isoformat()
+    print(f"[Queue DB] [{timestamp}] DELETE request for patient: {patient_id}")
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
+
+        # Check if patient exists before deleting
+        cursor.execute('SELECT id, name, triage_level FROM patients WHERE id = ?', (patient_id,))
+        existing = cursor.fetchone()
+
+        if existing:
+            print(f"[Queue DB] [{timestamp}] Patient found: ID={existing[0]}, Name={existing[1]}, Level={existing[2]}")
+
+        # Perform delete with isolation level
         cursor.execute('DELETE FROM patients WHERE id = ?', (patient_id,))
         conn.commit()
 
         if cursor.rowcount > 0:
-            print(f"[Queue DB] Deleted patient {patient_id}")
+            print(f"[Queue DB] [{timestamp}] ✓ Successfully deleted patient {patient_id} (rowcount={cursor.rowcount})")
             return True
         else:
-            print(f"[Queue DB] Patient {patient_id} not found")
+            print(f"[Queue DB] [{timestamp}] ✗ Patient {patient_id} not found (rowcount=0)")
             return False
 
 

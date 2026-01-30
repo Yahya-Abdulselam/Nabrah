@@ -1,6 +1,7 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 import parselmouth
 from parselmouth.praat import call
@@ -8,6 +9,8 @@ import numpy as np
 import tempfile
 import os
 import time
+import asyncio
+import json
 from typing import Optional, Dict, Any, List
 
 # Import queue database
@@ -17,11 +20,11 @@ import queue_db
 whisper_models = {}  # Cache for loaded models
 
 # Model mapping by language
-# DEMO: Using "base" model for better accuracy (59 MB download)
-# PRODUCTION: Use "tiny.en" (39 MB) or "tiny" (75 MB) for faster inference
+# Using "tiny" models for faster loading (5-10s vs 30-60s for base models)
+# tiny.en: 39 MB, tiny: 75 MB - sufficient for emergency triage MVP
 WHISPER_MODELS = {
-    "en": "base.en",  # English-only base model (better accuracy for demo)
-    "ar": "base"      # Multilingual base model for Arabic (better accuracy for demo)
+    "en": "tiny.en",  # English-only tiny model (fast loading, good accuracy)
+    "ar": "tiny"      # Multilingual tiny model for Arabic (fast loading)
 }
 
 app = FastAPI(title="Nabrah Audio Analysis API")
@@ -29,10 +32,15 @@ app = FastAPI(title="Nabrah Audio Analysis API")
 # CORS configuration for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",  # Alternative port
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -64,7 +72,7 @@ def save_audio_to_temp(audio_bytes: bytes) -> str:
         if wave_header != b'WAVE':
             raise ValueError(f"Invalid audio format: Expected WAVE header, got {wave_header[:4]}")
 
-        print(f"✓ Valid WAV file detected: {len(audio_bytes)} bytes")
+        print(f"[OK] Valid WAV file detected: {len(audio_bytes)} bytes")
 
         # Create temporary file using mkstemp (Windows-compatible)
         # mkstemp returns (file_descriptor, path) and doesn't keep file locked
@@ -362,7 +370,7 @@ def extract_features(audio_file_path: str, first_voiced_time: float = 0.0, last_
                     scaling_factor = 0.6  # Reduce by 40%
                     raw_jitter = jitter_percent
                     jitter_percent = jitter_percent * scaling_factor
-                    print(f"    [Jitter Correction] Conversational speech: {raw_jitter:.2f}% → {jitter_percent:.2f}%")
+                    print(f"    [Jitter Correction] Conversational speech: {raw_jitter:.2f}% -> {jitter_percent:.2f}%")
                 else:
                     print(f"    Capping at 3.5% (pathological threshold)")
                     jitter_percent = 3.5
@@ -372,7 +380,7 @@ def extract_features(audio_file_path: str, first_voiced_time: float = 0.0, last_
                 scaling_factor = 0.8
                 raw_jitter = jitter_percent
                 jitter_percent = jitter_percent * scaling_factor
-                print(f"[Jitter Adjustment] Conversational speech scaling: {raw_jitter:.2f}% → {jitter_percent:.2f}%")
+                print(f"[Jitter Adjustment] Conversational speech scaling: {raw_jitter:.2f}% -> {jitter_percent:.2f}%")
         except Exception as e:
             print(f"Jitter extraction failed: {e}")
             jitter_percent = 0.0
@@ -411,7 +419,7 @@ def extract_features(audio_file_path: str, first_voiced_time: float = 0.0, last_
                     scaling_factor = 0.4  # Reduce by 60%
                     raw_shimmer = shimmer_percent
                     shimmer_percent = shimmer_percent * scaling_factor
-                    print(f"    [Shimmer Correction] Conversational speech: {raw_shimmer:.2f}% → {shimmer_percent:.2f}%")
+                    print(f"    [Shimmer Correction] Conversational speech: {raw_shimmer:.2f}% -> {shimmer_percent:.2f}%")
                 else:
                     # Cap at 8% for longer recordings (likely real pathology)
                     shimmer_percent = 8.0
@@ -422,7 +430,7 @@ def extract_features(audio_file_path: str, first_voiced_time: float = 0.0, last_
                 scaling_factor = 0.7
                 raw_shimmer = shimmer_percent
                 shimmer_percent = shimmer_percent * scaling_factor
-                print(f"[Shimmer Adjustment] Conversational speech scaling: {raw_shimmer:.2f}% → {shimmer_percent:.2f}%")
+                print(f"[Shimmer Adjustment] Conversational speech scaling: {raw_shimmer:.2f}% -> {shimmer_percent:.2f}%")
         except Exception as e:
             print(f"Shimmer extraction failed: {e}")
             shimmer_percent = 0.0
@@ -634,12 +642,12 @@ def correct_features_for_snr(features: dict, snr_db: float) -> dict:
     - Titze (1995): Pause detection threshold shifts with noise
 
     For SNR < 20 dB (reference level), apply corrections:
-    - Jitter: noise inflates → correct downward (clamped to max 0.4%)
-    - Shimmer: noise inflates → correct downward (clamped to max 1.5%)
-    - HNR: noise reduces → correct upward (clamped to max 3.0 dB)
+    - Jitter: noise inflates -> correct downward (clamped to max 0.4%)
+    - Shimmer: noise inflates -> correct downward (clamped to max 1.5%)
+    - HNR: noise reduces -> correct upward (clamped to max 3.0 dB)
     - Pause ratio: downweighted in frontend, minimal correction here
-    - Speech rate: noise-independent → no correction
-    - Voice breaks: binary, noise-independent → no correction
+    - Speech rate: noise-independent -> no correction
+    - Voice breaks: binary, noise-independent -> no correction
 
     Safety Clamps (prevents over-correction):
     - Max jitter correction: 0.4% (even at very low SNR)
@@ -679,19 +687,19 @@ def correct_features_for_snr(features: dict, snr_db: float) -> dict:
     # Create corrected features dictionary
     corrected = features.copy()
 
-    # Correct jitter (noise inflates → subtract correction)
+    # Correct jitter (noise inflates -> subtract correction)
     jitter_correction = min(K_JITTER * snr_delta, MAX_JITTER_CORRECTION)
     corrected["jitter_local"] = max(0.0, features["jitter_local"] - jitter_correction)
 
-    # Correct shimmer (noise inflates → subtract correction)
+    # Correct shimmer (noise inflates -> subtract correction)
     shimmer_correction = min(K_SHIMMER * snr_delta, MAX_SHIMMER_CORRECTION)
     corrected["shimmer_dda"] = max(0.0, features["shimmer_dda"] - shimmer_correction)
 
-    # Correct HNR (noise reduces → add correction)
+    # Correct HNR (noise reduces -> add correction)
     hnr_correction = min(K_HNR * snr_delta, MAX_HNR_CORRECTION)
     corrected["hnr"] = min(40.0, features["hnr"] + hnr_correction)
 
-    # Correct pause ratios (noise inflates → subtract correction, MINIMAL)
+    # Correct pause ratios (noise inflates -> subtract correction, MINIMAL)
     # Pause is mostly handled by VAD reliability weighting in frontend
     pause_correction = min(K_PAUSE * snr_delta * 100, MAX_PAUSE_CORRECTION)
     corrected["pause_ratio"] = max(0.0, min(100.0, features["pause_ratio"] - pause_correction))
@@ -734,10 +742,10 @@ def correct_features_for_snr(features: dict, snr_db: float) -> dict:
 
     # Log corrections for debugging (show if clamped)
     print(f"[SNR Correction] SNR: {snr_db:.1f} dB, Delta: {snr_delta:.1f} dB (Conservative Option A)")
-    print(f"  Jitter:  {features['jitter_local']:.3f}% → {corrected['jitter_local']:.3f}% (Δ {-jitter_correction:.3f}% {'CLAMPED' if jitter_correction >= MAX_JITTER_CORRECTION else ''})")
-    print(f"  Shimmer: {features['shimmer_dda']:.3f}% → {corrected['shimmer_dda']:.3f}% (Δ {-shimmer_correction:.3f}% {'CLAMPED' if shimmer_correction >= MAX_SHIMMER_CORRECTION else ''})")
-    print(f"  HNR:     {features['hnr']:.2f} dB → {corrected['hnr']:.2f} dB (Δ +{hnr_correction:.2f} dB {'CLAMPED' if hnr_correction >= MAX_HNR_CORRECTION else ''})")
-    print(f"  Pause:   {features['pause_ratio']:.2f}% → {corrected['pause_ratio']:.2f}% (Δ {-pause_correction:.2f}% {'CLAMPED' if pause_correction >= MAX_PAUSE_CORRECTION else ''})")
+    print(f"  Jitter:  {features['jitter_local']:.3f}% -> {corrected['jitter_local']:.3f}% (Δ {-jitter_correction:.3f}% {'CLAMPED' if jitter_correction >= MAX_JITTER_CORRECTION else ''})")
+    print(f"  Shimmer: {features['shimmer_dda']:.3f}% -> {corrected['shimmer_dda']:.3f}% (Δ {-shimmer_correction:.3f}% {'CLAMPED' if shimmer_correction >= MAX_SHIMMER_CORRECTION else ''})")
+    print(f"  HNR:     {features['hnr']:.2f} dB -> {corrected['hnr']:.2f} dB (Δ +{hnr_correction:.2f} dB {'CLAMPED' if hnr_correction >= MAX_HNR_CORRECTION else ''})")
+    print(f"  Pause:   {features['pause_ratio']:.2f}% -> {corrected['pause_ratio']:.2f}% (Δ {-pause_correction:.2f}% {'CLAMPED' if pause_correction >= MAX_PAUSE_CORRECTION else ''})")
 
     return corrected
 
@@ -1117,6 +1125,53 @@ async def add_to_queue(patient: PatientData):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/queue/events")
+async def queue_events(request: Request):
+    """
+    Server-Sent Events endpoint for real-time queue updates.
+
+    Sends the current queue state every 2 seconds to all connected clients.
+    Automatically handles client disconnections.
+
+    Usage:
+        const eventSource = new EventSource('http://localhost:8000/queue/events');
+        eventSource.addEventListener('queue_update', (event) => {
+            const patients = JSON.parse(event.data);
+            console.log('Queue updated:', patients);
+        });
+
+    Returns:
+        EventSourceResponse with periodic queue updates
+    """
+    async def event_generator():
+        """Generate SSE events with queue updates"""
+        try:
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    print("[SSE] Client disconnected")
+                    break
+
+                # Get current queue state
+                patients = queue_db.get_queue()
+
+                # Send queue update event
+                yield {
+                    "event": "queue_update",
+                    "data": json.dumps(patients)
+                }
+
+                # Wait 2 seconds before next update
+                await asyncio.sleep(2)
+
+        except asyncio.CancelledError:
+            print("[SSE] Connection cancelled")
+        except Exception as e:
+            print(f"[SSE] Error in event generator: {e}")
+
+    return EventSourceResponse(event_generator())
+
+
 @app.get("/queue/{patient_id}")
 async def get_patient(patient_id: str):
     """
@@ -1239,14 +1294,32 @@ async def export_queue_csv():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.on_event("startup")
+async def preload_models():
+    """Pre-load Whisper models on server startup to avoid first-request delays."""
+    print("")
+    print("Pre-loading Whisper models...")
+    for lang, model_name in WHISPER_MODELS.items():
+        try:
+            print(f"   Loading {model_name} for {lang}...")
+            get_whisper_model(lang)
+            print(f"   {model_name} loaded successfully")
+        except Exception as e:
+            print(f"   WARNING: Failed to pre-load {model_name}: {e}")
+            print(f"   Model will load on first request instead")
+    print("Whisper model pre-loading complete!")
+    print("")
+
+
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Starting Nabrah Audio Analysis API...")
-    print("📡 Server will be available at: http://localhost:8000")
-    print("📚 API docs available at: http://localhost:8000/docs")
+    print("Starting Nabrah Audio Analysis API...")
+    print("Server will be available at: http://localhost:8000")
+    print("API docs available at: http://localhost:8000/docs")
     print("")
-    print("✨ No FFmpeg required - Frontend handles WAV encoding!")
-    print("📦 Lightweight deployment-ready configuration")
-    print("📋 Patient queue system enabled with SQLite storage")
+    print("No FFmpeg required - Frontend handles WAV encoding!")
+    print("Lightweight deployment-ready configuration")
+    print("Patient queue system enabled with SQLite storage")
+    print("SSE endpoint available at: http://localhost:8000/queue/events")
     print("")
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
