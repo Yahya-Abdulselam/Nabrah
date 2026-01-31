@@ -6,6 +6,7 @@ import { LanguageProvider, useLanguage } from "@/lib/i18n";
 import { ServiceWorkerRegistration } from "./sw-register";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { SyncProgress } from "@/components/SyncProgress";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -105,6 +106,7 @@ function RootLayoutInner({ children }: { children: React.ReactNode }) {
         `}
       >
         {children}
+        <Toaster position="top-right" richColors closeButton />
         <OfflineIndicator />
         <SyncProgress />
         <ServiceWorkerRegistration />

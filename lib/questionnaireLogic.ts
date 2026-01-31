@@ -211,13 +211,28 @@ export function calculateQuestionnaireScore(answers: QuestionnaireAnswers): Ques
 
   // Determine risk level
   let riskLevel: 'low' | 'moderate' | 'high';
-  if (totalScore <= 3) {
+  // Ensure totalScore is a valid number (handle NaN/undefined cases)
+  const validScore = isNaN(totalScore) || totalScore === undefined ? 0 : totalScore;
+
+  // Debug logging
+  console.log('[QuestionnaireLogic] Score calculation:', {
+    totalScore,
+    validScore,
+    agePoints,
+    healthPoints: HEALTH_STATUS_POINTS[answers.currentHealth],
+    conditionsCount: answers.conditions.length,
+    lifestyleCount: answers.lifestyle.length,
+  });
+
+  if (validScore <= 3) {
     riskLevel = 'low';
-  } else if (totalScore <= 7) {
+  } else if (validScore <= 7) {
     riskLevel = 'moderate';
   } else {
     riskLevel = 'high';
   }
+
+  console.log('[QuestionnaireLogic] Calculated risk level:', riskLevel, 'for score:', validScore);
 
   // Check for confounding factors (cold, fatigue)
   const hasConfoundingFactors =
@@ -245,7 +260,7 @@ export function calculateQuestionnaireScore(answers: QuestionnaireAnswers): Ques
   }
 
   return {
-    totalScore: isNaN(totalScore) ? 0 : totalScore,
+    totalScore: validScore,
     riskLevel,
     hasConfoundingFactors,
     confidenceModifier,

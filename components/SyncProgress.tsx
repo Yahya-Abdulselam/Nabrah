@@ -4,12 +4,39 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RefreshCw, CheckCircle, XCircle, Cloud } from 'lucide-react';
 import { useSync } from '@/lib/sync/hooks';
 import { Progress } from './ui/progress';
+import { useState, useEffect } from 'react';
 
 export function SyncProgress() {
   const { isSyncing, syncProgress, lastSyncResult, syncError } = useSync();
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showError, setShowError] = useState(false);
 
-  // Don't show if not syncing and no recent result
-  if (!isSyncing && !lastSyncResult && !syncError) {
+  // Auto-dismiss success message after 3 seconds
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.success && !isSyncing) {
+      setShowSuccess(true);
+      const timer = setTimeout(() => {
+        setShowSuccess(false);
+      }, 3000); // Dismiss after 3 seconds
+
+      return () => clearTimeout(timer);
+    }
+  }, [lastSyncResult, isSyncing]);
+
+  // Auto-dismiss error message after 5 seconds
+  useEffect(() => {
+    if (syncError && !isSyncing) {
+      setShowError(true);
+      const timer = setTimeout(() => {
+        setShowError(false);
+      }, 5000); // Dismiss after 5 seconds
+
+      return () => clearTimeout(timer);
+    }
+  }, [syncError, isSyncing]);
+
+  // Don't show if not syncing and no active notifications
+  if (!isSyncing && !showSuccess && !showError) {
     return null;
   }
 
@@ -53,11 +80,12 @@ export function SyncProgress() {
       )}
 
       {/* Success message */}
-      {lastSyncResult && lastSyncResult.success && !isSyncing && (
+      {showSuccess && lastSyncResult && lastSyncResult.success && (
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
+          transition={{ duration: 0.3 }}
           className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50"
         >
           <div className="bg-green-50 dark:bg-green-900/20 rounded-lg shadow-lg border border-green-200 dark:border-green-800 p-4">
@@ -71,17 +99,25 @@ export function SyncProgress() {
                   {lastSyncResult.syncedItems} items synced successfully
                 </p>
               </div>
+              <button
+                onClick={() => setShowSuccess(false)}
+                className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-200 transition-colors"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
             </div>
           </div>
         </motion.div>
       )}
 
       {/* Error message */}
-      {syncError && !isSyncing && (
+      {showError && syncError && (
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
+          transition={{ duration: 0.3 }}
           className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50"
         >
           <div className="bg-red-50 dark:bg-red-900/20 rounded-lg shadow-lg border border-red-200 dark:border-red-800 p-4">
@@ -95,6 +131,13 @@ export function SyncProgress() {
                   {syncError.message}
                 </p>
               </div>
+              <button
+                onClick={() => setShowError(false)}
+                className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 transition-colors"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
             </div>
           </div>
         </motion.div>

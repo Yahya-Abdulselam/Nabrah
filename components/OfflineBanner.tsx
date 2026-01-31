@@ -18,11 +18,17 @@ export function OfflineBanner({
 }: OfflineBannerProps) {
   const { isOnline, isOffline } = useNetworkStatus();
   const [showBackOnline, setShowBackOnline] = useState(false);
-  const previousOnlineStatus = useRef(isOnline);
+  const previousOnlineStatus = useRef<boolean | null>(null);
 
   useEffect(() => {
+    // Skip first render - just initialize the ref
+    if (previousOnlineStatus.current === null) {
+      previousOnlineStatus.current = isOnline;
+      return;
+    }
+
     // Detect when connection is restored (transition from offline to online)
-    if (!previousOnlineStatus.current && isOnline && showOnlineMessage) {
+    if (previousOnlineStatus.current === false && isOnline && showOnlineMessage) {
       // Show "back online" message
       setShowBackOnline(true);
 
@@ -30,6 +36,9 @@ export function OfflineBanner({
       const timer = setTimeout(() => {
         setShowBackOnline(false);
       }, 3000);
+
+      // Update previous status
+      previousOnlineStatus.current = isOnline;
 
       return () => clearTimeout(timer);
     }

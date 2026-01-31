@@ -240,13 +240,35 @@ export class SyncManager {
       throw new Error(`Recording not found: ${item.entity_id}`);
     }
 
+    // Validate audio blob before syncing (skip test/invalid data)
+    if (!recording.audioBlob || recording.audioBlob.size < 1000) {
+      console.warn('[SyncManager] Skipping invalid/test recording:', item.entity_id, 'size:', recording.audioBlob?.size);
+      throw new Error('Invalid audio blob (too small or missing)');
+    }
+
     // Send recording to backend for full analysis
     const formData = new FormData();
     formData.append('audio', recording.audioBlob, 'recording.wav');
     formData.append('language', recording.language);
 
+    // Add questionnaire data if present (matching API route expected format)
     if (item.payload?.questionnaireData) {
-      formData.append('questionnaire_data', JSON.stringify(item.payload.questionnaireData));
+      const qData = item.payload.questionnaireData;
+      if (qData.score !== undefined) {
+        formData.append('questionnaire_score', qData.score.toString());
+      }
+      if (qData.riskLevel) {
+        formData.append('questionnaire_risk', qData.riskLevel);
+      }
+      if (qData.hasConfounding !== undefined) {
+        formData.append('has_confounding', qData.hasConfounding.toString());
+      }
+      if (qData.confidenceModifier !== undefined) {
+        formData.append('confidence_modifier', qData.confidenceModifier.toString());
+      }
+      if (qData.suddenEvents) {
+        formData.append('sudden_events', JSON.stringify(qData.suddenEvents));
+      }
     }
 
     // Fixed: Use Next.js API route instead of Python backend directly
@@ -257,7 +279,13 @@ export class SyncManager {
     });
 
     if (!response.ok) {
-      throw new Error(`Backend analysis failed: ${response.statusText}`);
+      const errorBody = await response.text().catch(() => 'No error details');
+      console.error('[SyncManager] Analysis failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorBody
+      });
+      throw new Error(`Backend analysis failed: ${response.statusText} (${response.status})`);
     }
 
     const result = await response.json();

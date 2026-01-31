@@ -7,21 +7,35 @@ import { QueueSummary } from '@/components/QueueSummary';
 import { PatientList } from '@/components/PatientList';
 import { Button } from '@/components/ui/button';
 import { fetchQueue, downloadQueueCsv } from '@/lib/queueApi';
-import { Patient, QueueStats, PatientStatus } from '@/lib/patientTypes';
+import { QueueStats, PatientStatus } from '@/lib/patientTypes';
 import {
   ArrowLeft,
   RefreshCw,
   Download,
   Mic,
-  AlertCircle
+  AlertCircle,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLanguage } from '@/lib/i18n';
+import { useQueueStore } from '@/lib/queueStore';
+import { useQueueSSE } from '@/hooks/useQueueSSE';
+import { useQueueSync } from '@/hooks/useQueueSync';
 
 export default function QueuePage() {
   const { t, language } = useLanguage();
-  const [patients, setPatients] = useState<Patient[]>([]);
+
+  // Use Zustand store for queue state
+  const { patients, isLoading, error: storeError } = useQueueStore();
+
+  // Initialize SSE connection for real-time updates
+  const { isConnected, error: sseError, reconnect } = useQueueSSE();
+
+  // Initialize multi-tab sync
+  const queueSync = useQueueSync();
+
   const [stats, setStats] = useState<QueueStats>({
     by_level: { RED: 0, YELLOW: 0, GREEN: 0 },
     by_status: { pending: 0, reviewing: 0, completed: 0, referred: 0 },
@@ -29,32 +43,35 @@ export default function QueuePage() {
     total_count: 0
   });
   const [statusFilter, setStatusFilter] = useState<PatientStatus | 'all'>('all');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
+  // Calculate stats from patients
+  useEffect(() => {
+    const newStats: QueueStats = {
+      by_level: { RED: 0, YELLOW: 0, GREEN: 0 },
+      by_status: { pending: 0, reviewing: 0, completed: 0, referred: 0 },
+      active_count: 0,
+      total_count: patients.length
+    };
+
+    patients.forEach(p => {
+      if (p.triage_level) newStats.by_level[p.triage_level]++;
+      // if (p.status) newStats.by_status[p.status]++;
+    });
+
+    setStats(newStats);
+  }, [patients]);
+
+  // Manual refresh (fallback)
   const loadQueue = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
       const response = await fetchQueue();
-      setPatients(response.patients);
-      setStats(response.stats);
+      useQueueStore.getState().setPatients(response.patients);
+      queueSync.broadcastQueueRefreshed(response.patients);
     } catch (err) {
       console.error('Failed to load queue:', err);
-      setError(err instanceof Error ? err.message : t('queue.failedToLoad'));
-    } finally {
-      setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    loadQueue();
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(loadQueue, 30000);
-    return () => clearInterval(interval);
-  }, [loadQueue]);
+  }, [queueSync]);
 
   const handleExport = async () => {
     try {
@@ -97,15 +114,34 @@ export default function QueuePage() {
             </div>
 
             <div className="flex items-center gap-2 mr-12">
+              {/* Connection status indicator */}
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs ${
+                isConnected
+                  ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                  : 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
+              } ${language === 'ar' ? 'font-arabic' : ''}`}>
+                {isConnected ? (
+                  <>
+                    <Wifi className="h-3.5 w-3.5" />
+                    <span>Live</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="h-3.5 w-3.5" />
+                    <span>Polling</span>
+                  </>
+                )}
+              </div>
+
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadQueue}
-                disabled={loading}
+                onClick={isConnected ? loadQueue : reconnect}
+                disabled={isLoading}
                 className={`cursor-pointer ${language === 'ar' ? 'font-arabic' : ''}`}
               >
-                <RefreshCw className={`h-4 w-4 ${language === 'ar' ? 'ml-2' : 'mr-2'} ${loading ? 'animate-spin' : ''}`} />
-                {t('queue.refresh')}
+                <RefreshCw className={`h-4 w-4 ${language === 'ar' ? 'ml-2' : 'mr-2'} ${isLoading ? 'animate-spin' : ''}`} />
+                {isConnected ? t('queue.refresh') : 'Reconnect'}
               </Button>
               <Button
                 variant="outline"
@@ -130,28 +166,25 @@ export default function QueuePage() {
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {error ? (
+        {storeError || sseError ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 text-center"
+            className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6 mb-6"
           >
-            <AlertCircle className="h-12 w-12 mx-auto text-red-500 dark:text-red-400 mb-4" />
-            <h3 className={`text-lg font-medium text-red-800 dark:text-red-300 mb-2 ${language === 'ar' ? 'font-arabic' : ''}`}>
-              {t('queue.failedToLoad')}
-            </h3>
-            <p className={`text-red-600 dark:text-red-400 mb-4 ${language === 'ar' ? 'font-arabic' : ''}`}>{error}</p>
-            <Button variant="outline" onClick={loadQueue} className={`cursor-pointer ${language === 'ar' ? 'font-arabic' : ''}`}>
-              {t('common.retry')}
-            </Button>
+            <AlertCircle className="h-8 w-8 mx-auto text-yellow-500 dark:text-yellow-400 mb-2" />
+            <p className={`text-center text-yellow-800 dark:text-yellow-300 text-sm ${language === 'ar' ? 'font-arabic' : ''}`}>
+              {storeError || sseError}
+            </p>
           </motion.div>
-        ) : (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-            className="space-y-8"
-          >
+        ) : null}
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="space-y-8"
+        >
             {/* Summary cards */}
             <section>
               <h2 className={`text-lg font-semibold text-slate-800 dark:text-white mb-4 ${language === 'ar' ? 'font-arabic' : ''}`}>
@@ -165,7 +198,7 @@ export default function QueuePage() {
               <h2 className={`text-lg font-semibold text-slate-800 dark:text-white mb-4 ${language === 'ar' ? 'font-arabic' : ''}`}>
                 {t('queue.patients')}
               </h2>
-              {loading && patients.length === 0 ? (
+              {isLoading && patients.length === 0 ? (
                 <div className="text-center py-12">
                   <RefreshCw className="h-8 w-8 mx-auto text-slate-400 dark:text-slate-500 animate-spin mb-4" />
                   <p className={`text-slate-600 dark:text-slate-300 ${language === 'ar' ? 'font-arabic' : ''}`}>
@@ -182,8 +215,7 @@ export default function QueuePage() {
               )}
             </section>
           </motion.div>
-        )}
-      </main>
+        </main>
 
       {/* Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-700 mt-auto py-4">

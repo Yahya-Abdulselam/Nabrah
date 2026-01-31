@@ -16,15 +16,24 @@ export class NetworkStatusManager {
   private listeners: Set<(event: NetworkStatusEvent) => void> = new Set();
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
+  private isInitialCheck: boolean = true;
 
   constructor() {
-    // Initialize status
-    this.currentStatus = navigator.onLine ? 'online' : 'offline';
+    // Initialize as unknown until we verify backend connectivity
+    this.currentStatus = 'unknown';
 
     // Setup event listeners
     this.setupListeners();
 
-    console.log(`[NetworkStatus] Initial status: ${this.currentStatus}`);
+    console.log(`[NetworkStatus] Initializing... navigator.onLine = ${navigator.onLine}`);
+
+    // Immediately check actual backend connectivity (don't wait)
+    // This prevents showing "offline" when backend is actually running
+    // Skip auto-sync on initial load to prevent syncing old test data
+    this.checkStatus(true).then((status) => {
+      console.log(`[NetworkStatus] Initial status verified: ${status}`);
+      this.isInitialCheck = false;
+    });
   }
 
   private setupListeners(): void {
@@ -81,7 +90,7 @@ export class NetworkStatusManager {
   }
 
   // Check actual network status (ping backend)
-  async checkStatus(): Promise<NetworkStatus> {
+  async checkStatus(skipSync: boolean = false): Promise<NetworkStatus> {
     try {
       const syncManager = getSyncManager();
       const isOnline = await syncManager.isOnline();
@@ -99,7 +108,9 @@ export class NetworkStatusManager {
           previousStatus,
         });
 
-        if (newStatus === 'online') {
+        // Only auto-sync if NOT initial check and status changed to online from a known state
+        if (newStatus === 'online' && !skipSync && previousStatus !== 'unknown') {
+          console.log('[NetworkStatus] Status changed to online, scheduling sync...');
           this.scheduleSync();
         }
       }
@@ -124,6 +135,12 @@ export class NetworkStatusManager {
   scheduleSync(delayMs: number = 2000): void {
     if (this.currentStatus !== 'online') {
       console.log('[NetworkStatus] Cannot schedule sync: offline');
+      return;
+    }
+
+    // Skip if still in initial check phase
+    if (this.isInitialCheck) {
+      console.log('[NetworkStatus] Skipping auto-sync: initial check in progress');
       return;
     }
 

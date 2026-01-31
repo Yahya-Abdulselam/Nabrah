@@ -3,9 +3,12 @@
 import { useState } from 'react';
 import { Patient, getStatusInfo, formatTimestamp, getPriorityLabel } from '@/lib/patientTypes';
 import { updatePatientStatus, deletePatient } from '@/lib/queueApi';
+import { useQueueStore } from '@/lib/queueStore';
+import { useQueueSync } from '@/hooks/useQueueSync';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import {
   AlertCircle,
   AlertTriangle,
@@ -17,7 +20,8 @@ import {
   Trash2,
   Eye,
   Forward,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
 
 interface PatientCardProps {
@@ -28,6 +32,10 @@ interface PatientCardProps {
 export function PatientCard({ patient, onUpdate }: PatientCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const { removePatient, rollbackRemove, isPatientDeleting, setDeleting } = useQueueStore();
+  const queueSync = useQueueSync();
+  const isDeleting = isPatientDeleting(patient.id);
 
   const statusInfo = getStatusInfo(patient.status);
 
@@ -71,17 +79,61 @@ export function PatientCard({ patient, onUpdate }: PatientCardProps) {
   };
 
   const handleDelete = async () => {
+    // Prevent duplicate deletes
+    if (isDeleting) {
+      console.log('[PatientCard] Delete already in progress for:', patient.id);
+      return;
+    }
+
     if (!confirm('Are you sure you want to remove this patient from the queue?')) {
       return;
     }
-    setLoading(true);
+
+    // Store patient data for potential rollback
+    const patientCopy = { ...patient };
+
     try {
+      // Optimistic update: remove from UI immediately
+      await removePatient(patient.id);
+
+      // Broadcast to other tabs
+      queueSync.broadcastPatientRemoved(patient.id);
+
+      // Show loading toast
+      const loadingToast = toast.loading('Removing patient from queue...');
+
+      // Call backend
       await deletePatient(patient.id);
-      onUpdate();
+
+      // Success!
+      toast.dismiss(loadingToast);
+      toast.success('Patient removed from queue', {
+        description: `Patient ${patient.id} has been successfully removed.`
+      });
+
+      // Clear deleting flag
+      setDeleting(patient.id, false);
+
     } catch (error) {
-      console.error('Failed to delete patient:', error);
-    } finally {
-      setLoading(false);
+      console.error('[PatientCard] Failed to delete patient:', error);
+
+      // Rollback: restore patient to queue
+      rollbackRemove(patientCopy);
+
+      // Show error toast
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error('Failed to remove patient', {
+        description: errorMessage.includes('404')
+          ? 'Patient was already removed. The queue has been refreshed.'
+          : 'Please try again or check your connection.',
+        action: {
+          label: 'Retry',
+          onClick: () => handleDelete()
+        }
+      });
+
+      // Clear deleting flag
+      setDeleting(patient.id, false);
     }
   };
 
@@ -185,12 +237,16 @@ export function PatientCard({ patient, onUpdate }: PatientCardProps) {
             <Button
               size="sm"
               variant="ghost"
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
               onClick={handleDelete}
-              disabled={loading}
+              disabled={loading || isDeleting}
             >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Remove
+              {isDeleting ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-1" />
+              )}
+              {isDeleting ? 'Removing...' : 'Remove'}
             </Button>
           )}
           <Button

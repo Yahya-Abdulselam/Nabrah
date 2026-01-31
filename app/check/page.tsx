@@ -101,11 +101,25 @@ export default function CheckPage() {
 
       console.log('Sending audio for analysis...', 'Language:', language);
 
-      // Send to API
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        body: formData,
-      });
+      // Send to API with 60-second timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s max
+
+      let response;
+      try {
+        response = await fetch('/api/analyze', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error('Analysis timed out after 60 seconds. Please try again with better audio quality or check your internet connection.');
+        }
+        throw fetchError;
+      }
 
       const data = await response.json();
 

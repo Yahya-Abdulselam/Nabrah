@@ -7,25 +7,33 @@ import { getNetworkStatusManager, type NetworkStatus, type NetworkStatusEvent } 
 
 // Hook for network status
 export function useNetworkStatus() {
-  // Initialize with actual browser online status
-  const [isOnline, setIsOnline] = useState(() => {
-    if (typeof navigator !== 'undefined') {
-      return navigator.onLine;
-    }
-    return true; // SSR fallback
-  });
+  // Initialize as unknown to prevent false indicators
+  const [isOnline, setIsOnline] = useState(true); // Optimistic - assume online until proven otherwise
   const [status, setStatus] = useState<NetworkStatus>('unknown');
   const [lastStatusChange, setLastStatusChange] = useState<Date | null>(null);
 
   useEffect(() => {
     const networkManager = getNetworkStatusManager();
 
-    // Set initial status
-    setStatus(networkManager.getStatus());
-    setIsOnline(networkManager.isOnline());
+    // Immediately get current status (don't wait)
+    const currentStatus = networkManager.getStatus();
+
+    // If status is already determined (not unknown), update immediately
+    if (currentStatus !== 'unknown') {
+      setStatus(currentStatus);
+      setIsOnline(currentStatus === 'online');
+    } else {
+      // Status is unknown, wait for verification then update
+      setTimeout(() => {
+        const verifiedStatus = networkManager.getStatus();
+        setStatus(verifiedStatus);
+        setIsOnline(verifiedStatus === 'online');
+      }, 1000); // Give backend check time to complete
+    }
 
     // Listen for status changes
     const handleStatusChange = (event: NetworkStatusEvent) => {
+      console.log('[useNetworkStatus] Status changed:', event.status);
       setStatus(event.status);
       setIsOnline(event.status === 'online');
       setLastStatusChange(event.timestamp);

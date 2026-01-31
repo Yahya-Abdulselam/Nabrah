@@ -88,12 +88,12 @@ export function EnhancedFeatureDashboard({
           <div>
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-600 dark:text-gray-400">Jitter (frequency stability)</span>
-              <span className={getSeverityColor(features.jitter_local, { warning: 1.5, danger: 2.0 })}>
-                {features.jitter_local.toFixed(2)}%
+              <span className={getSeverityColor(features.jitter_local ?? 0, { warning: 1.5, danger: 2.0 })}>
+                {features.jitter_local?.toFixed(2) ?? 'N/A'}%
               </span>
             </div>
             <Progress
-              value={getFeatureProgress(features.jitter_local, 3)}
+              value={getFeatureProgress(features.jitter_local ?? 0, 3)}
               className="h-2"
             />
           </div>
@@ -102,12 +102,12 @@ export function EnhancedFeatureDashboard({
           <div>
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-600 dark:text-gray-400">Shimmer (amplitude stability)</span>
-              <span className={getSeverityColor(features.shimmer_dda, { warning: 10, danger: 17 })}>
-                {features.shimmer_dda.toFixed(2)}%
+              <span className={getSeverityColor(features.shimmer_dda ?? 0, { warning: 10, danger: 17 })}>
+                {features.shimmer_dda?.toFixed(2) ?? 'N/A'}%
               </span>
             </div>
             <Progress
-              value={getFeatureProgress(features.shimmer_dda, 25)}
+              value={getFeatureProgress(features.shimmer_dda ?? 0, 25)}
               className="h-2"
             />
           </div>
@@ -116,12 +116,12 @@ export function EnhancedFeatureDashboard({
           <div>
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-600 dark:text-gray-400">HNR (voice clarity)</span>
-              <span className={features.hnr < 10 ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}>
-                {features.hnr.toFixed(1)} dB
+              <span className={(features.hnr ?? 0) < 10 ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}>
+                {features.hnr?.toFixed(1) ?? 'N/A'} dB
               </span>
             </div>
             <Progress
-              value={getFeatureProgress(features.hnr, 25)}
+              value={getFeatureProgress(features.hnr ?? 0, 25)}
               className="h-2"
             />
           </div>
@@ -130,12 +130,12 @@ export function EnhancedFeatureDashboard({
           <div>
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-600 dark:text-gray-400">Speech rate</span>
-              <span className={features.speech_rate < 2 ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}>
-                {features.speech_rate.toFixed(1)} syl/s
+              <span className={(features.speech_rate ?? 0) < 2 ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}>
+                {features.speech_rate?.toFixed(1) ?? 'N/A'} syl/s
               </span>
             </div>
             <Progress
-              value={getFeatureProgress(features.speech_rate, 5)}
+              value={getFeatureProgress(features.speech_rate ?? 0, 5)}
               className="h-2"
             />
           </div>
@@ -144,12 +144,12 @@ export function EnhancedFeatureDashboard({
           <div>
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-600 dark:text-gray-400">Pause ratio</span>
-              <span className={getSeverityColor(features.pause_ratio, { warning: 30, danger: 40 })}>
-                {features.pause_ratio.toFixed(1)}%
+              <span className={getSeverityColor(features.pause_ratio ?? 0, { warning: 30, danger: 40 })}>
+                {features.pause_ratio?.toFixed(1) ?? 'N/A'}%
               </span>
             </div>
             <Progress
-              value={getFeatureProgress(features.pause_ratio, 60)}
+              value={getFeatureProgress(features.pause_ratio ?? 0, 60)}
               className="h-2"
             />
           </div>
@@ -170,12 +170,12 @@ export function EnhancedFeatureDashboard({
             <div>
               <div className="flex justify-between text-sm mb-1">
                 <span className="text-gray-600 dark:text-gray-400">Signal-to-Noise Ratio</span>
-                <span className={quality.snr_db >= 15 ? 'text-green-600 dark:text-green-400' : quality.snr_db >= 10 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}>
-                  {quality.snr_db.toFixed(1)} dB
+                <span className={(quality.snr_db ?? 0) >= 15 ? 'text-green-600 dark:text-green-400' : (quality.snr_db ?? 0) >= 10 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}>
+                  {quality.snr_db?.toFixed(1) ?? 'N/A'} dB
                 </span>
               </div>
               <Progress
-                value={getFeatureProgress(quality.snr_db, 25)}
+                value={getFeatureProgress(quality.snr_db ?? 0, 25)}
                 className="h-2"
               />
             </div>
@@ -184,12 +184,12 @@ export function EnhancedFeatureDashboard({
             <div>
               <div className="flex justify-between text-sm mb-1">
                 <span className="text-gray-600 dark:text-gray-400">Speech content</span>
-                <span className={quality.speech_percentage >= 40 ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}>
-                  {quality.speech_percentage.toFixed(1)}%
+                <span className={(quality.speech_percentage ?? 0) >= 40 ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}>
+                  {quality.speech_percentage?.toFixed(1) ?? 'N/A'}%
                 </span>
               </div>
               <Progress
-                value={quality.speech_percentage}
+                value={quality.speech_percentage ?? 0}
                 className="h-2"
               />
             </div>
@@ -237,12 +237,12 @@ export function EnhancedFeatureDashboard({
               <div>
                 <div className="flex justify-between text-sm mb-1">
                   <span className="text-gray-600 dark:text-gray-400">Speech clarity confidence</span>
-                  <span className={whisper.confidence_score >= 70 ? 'text-green-600 dark:text-green-400' : whisper.confidence_score >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}>
-                    {whisper.confidence_score.toFixed(0)}%
+                  <span className={(whisper.confidence_score ?? 0) >= 70 ? 'text-green-600 dark:text-green-400' : (whisper.confidence_score ?? 0) >= 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}>
+                    {whisper.confidence_score?.toFixed(0) ?? 'N/A'}%
                   </span>
                 </div>
                 <Progress
-                  value={whisper.confidence_score}
+                  value={whisper.confidence_score ?? 0}
                   className="h-2"
                 />
               </div>

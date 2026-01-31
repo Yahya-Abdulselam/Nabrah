@@ -134,17 +134,32 @@ export async function POST(request: NextRequest) {
     const whisperUrl = new URL(`${pythonBackendUrl}/analyze/whisper`);
     whisperUrl.searchParams.set('language', language);
 
-    // Make parallel requests to Praat and Whisper endpoints
-    const [praatResponse, whisperResponse] = await Promise.allSettled([
-      fetch(`${pythonBackendUrl}/analyze`, {
-        method: 'POST',
-        body: praatFormData,
-      }),
-      fetch(whisperUrl.toString(), {
-        method: 'POST',
-        body: whisperFormData,
-      })
-    ]);
+    // Create timeout controllers for each request (30s timeout)
+    const praatController = new AbortController();
+    const whisperController = new AbortController();
+    const praatTimeout = setTimeout(() => praatController.abort(), 30000); // 30s
+    const whisperTimeout = setTimeout(() => whisperController.abort(), 30000); // 30s
+
+    // Make parallel requests to Praat and Whisper endpoints with timeouts
+    let praatResponse, whisperResponse;
+    try {
+      [praatResponse, whisperResponse] = await Promise.allSettled([
+        fetch(`${pythonBackendUrl}/analyze`, {
+          method: 'POST',
+          body: praatFormData,
+          signal: praatController.signal,
+        }),
+        fetch(whisperUrl.toString(), {
+          method: 'POST',
+          body: whisperFormData,
+          signal: whisperController.signal,
+        })
+      ]);
+    } finally {
+      // Always clear timeouts
+      clearTimeout(praatTimeout);
+      clearTimeout(whisperTimeout);
+    }
 
     // Process Praat response (required)
     if (praatResponse.status === 'rejected') {
@@ -351,8 +366,13 @@ export async function POST(request: NextRequest) {
       triageResult.action = 'Contact your doctor within 24-48 hours for evaluation';
     }
 
-    // Special case: high questionnaire risk + any voice abnormality = escalate
-    if (questionnaireData?.riskLevel === 'high' && voiceScore >= 5 && triageResult.level === 'GREEN') {
+    // Special case: high questionnaire risk + significant voice abnormality = escalate
+    // Only escalate if questionnaire score is ACTUALLY high (not just riskLevel mislabeled)
+    // This prevents false escalation when questionnaire score is 0 but riskLevel is incorrectly 'high'
+    if (questionnaireData?.riskLevel === 'high' &&
+        (questionnaireData?.score || 0) >= 8 &&
+        voiceScore >= 5 &&
+        triageResult.level === 'GREEN') {
       triageResult.level = 'YELLOW';
       triageResult.message = 'FOLLOW-UP RECOMMENDED';
       triageResult.action = 'Multiple risk factors detected. Schedule a medical evaluation within the week.';
