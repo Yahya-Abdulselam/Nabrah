@@ -51,6 +51,7 @@ export class SyncManager {
   // Check if online
   async isOnline(): Promise<boolean> {
     if (!navigator.onLine) {
+      console.log('[SyncManager] navigator.onLine = false');
       return false;
     }
 
@@ -59,15 +60,29 @@ export class SyncManager {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
 
-      const response = await fetch(`${this.apiUrl}/health`, {
+      // Fix: Ensure proper URL construction (remove duplicate /health if apiUrl already has it)
+      const baseUrl = this.apiUrl.replace(/\/$/, ''); // Remove trailing slash
+      const healthUrl = `${baseUrl}/health`;
+      console.log('[SyncManager] Checking health endpoint:', healthUrl);
+
+      const response = await fetch(healthUrl, {
         method: 'GET',
         signal: controller.signal,
+        mode: 'cors', // Explicitly set CORS mode
+        cache: 'no-cache', // Don't cache health checks
       });
 
       clearTimeout(timeoutId);
-      return response.ok;
+
+      if (response.ok) {
+        console.log('[SyncManager] Backend is online ✓');
+        return true;
+      } else {
+        console.warn('[SyncManager] Backend returned non-OK status:', response.status);
+        return false;
+      }
     } catch (error) {
-      console.log('[SyncManager] Backend not reachable:', error);
+      console.warn('[SyncManager] Backend not reachable:', error instanceof Error ? error.message : String(error));
       return false;
     }
   }
@@ -234,7 +249,9 @@ export class SyncManager {
       formData.append('questionnaire_data', JSON.stringify(item.payload.questionnaireData));
     }
 
-    const response = await fetch(`${this.apiUrl}/api/analyze`, {
+    // Fixed: Use Next.js API route instead of Python backend directly
+    // The Next.js route will forward to Python backend
+    const response = await fetch('/api/analyze', {
       method: 'POST',
       body: formData,
     });
